@@ -13,16 +13,18 @@ def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if device == "cuda" else torch.float32
 
-    processor = AutoProcessor.from_pretrained(MODEL_NAME)
-
-    model = AutoModelForVision2Seq.from_pretrained(
-        MODEL_NAME,
-        torch_dtype=dtype,
-        _attn_implementation="eager",
-    ).to(device)
-
-    model.eval()
-    return processor, model, device
+    try:
+        processor = AutoProcessor.from_pretrained(MODEL_NAME)
+        model = AutoModelForVision2Seq.from_pretrained(
+            MODEL_NAME,
+            torch_dtype=dtype,
+            _attn_implementation="eager",
+        ).to(device)
+        model.eval()
+        return processor, model, device
+    except Exception as e:
+        st.error(f"Ошибка при загрузке модели: {e}")
+        st.stop()
 
 
 # Функция загрузки изображения через Streamlit
@@ -43,7 +45,7 @@ def load_image():
 
         try:
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
-            image.thumbnail((800, 800))  # уменьшенный размер, чтобы не перегружать память
+            image.thumbnail((800, 800))  # уменьшаем размер изображения
             return image
         except Exception as e:
             st.error(f"Ошибка при загрузке изображения: {e}")
@@ -81,7 +83,8 @@ def transcribe_image(processor, model, device, image):
         generated_ids = model.generate(
             **inputs,
             max_new_tokens=64,
-            do_sample=False
+            do_sample=False,
+            pad_token_id=processor.tokenizer.pad_token_id,
         )
 
     prompt_length = inputs["input_ids"].shape[1]
@@ -92,25 +95,23 @@ def transcribe_image(processor, model, device, image):
         skip_special_tokens=True
     )[0].strip()
 
-    return generated_text
+    return generated_trext
 
 
-# Определение заголовков приложения
+# Основная часть приложения
 st.set_page_config(page_title="Распознать английский текст с изображения!")
 st.title("🌟 Распознать английский текст с изображения!")
 st.write("Загрузите изображение и нажмите кнопку распознавания.")
 
-# Загрузка модели с обработкой возможных ошибок при старте
-processor, model, device = None, None, None
-try:
-    processor, model, device = load_model()
-except Exception as e:
-    st.error(f"Ошибка при загрузке модели: {e}")
-    st.stop()  # не крашим полностью сервер, а останавливаем выполнение страницы
+# Проверка, что модель загружена корректно
+processor, model, device = load_model()
+if processor is None or model is None:
+    st.warning("Модель не загружена, проверьте зависимости и интернет‑соединение.")
+    st.stop()
 
 img = load_image()
 
-# Запуск распознавания и вывод результата
+# Распознавание и вывод результата
 if st.button("Распознать изображение", type="primary"):
     if img is None:
         st.warning("Сначала загрузите изображение.")
