@@ -89,7 +89,6 @@ def transcribe_image(tokenizer, model, device, image):
             messages,
             tokenize=False,
             add_generation_prompt=True,
-            tokenize=False,
         )
         if isinstance(prompt, str):
             pass
