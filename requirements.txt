@@ -1,0 +1,6 @@
+streamlit
+transformers==4.52.2
+torch
+torchvision
+pillow
+accelerate
