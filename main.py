@@ -63,4 +63,79 @@ def load_image():
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
             image.thumbnail((800, 800))
             return image
-        except:
+        except Exception as e:
+            st.error(f"Ошибка при загрузке изображения: {e}")
+            return None
+
+    return None
+
+
+# Функция распознавания через Processor (не через model.processor!)
+def transcribe_image(processor, model, device, image):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {
+                    "type": "text",
+                    "text": (
+                        "Transcribe the text exactly as it appears in the image. "
+                        "Do not paraphrase. "
+                        "Do not add explanations. "
+                        "Output only the recognized text."
+                    )
+                },
+            ],
+        }
+    ]
+
+    # Применяем чат‑шаблон
+    prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+
+    # Объединяем текст и изображение в один вход
+    inputs = processor(text=prompt, images=[image], return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=64,
+            do_sample=False,
+            pad_token_id=processor.tokenizer.pad_token_id,
+        )
+
+    prompt_length = inputs["input_ids"].shape[1]
+    new_tokens = generated_ids[:, prompt_length:]
+
+    generated_text = processor.batch_decode(
+        new_tokens,
+        skip_special_tokens=True
+    )[0].strip()
+
+    return generated_text
+
+
+# Основная часть приложения
+st.set_page_config(page_title="Распознать английский текст с изображения!")
+st.title("🌟 Распознать английский текст с изображения!")
+st.write("Загрузите изображение и нажмите кнопку распознавания.")
+
+processor, model, device = load_model()
+if processor is None or model is None:
+    st.warning("Модель или процессор не загружены, проверьте зависимость `transformers` и интернет‑соединение.")
+    st.stop()
+
+img = load_image()
+
+if st.button("Распознать изображение", type="primary"):
+    if img is None:
+        st.warning("Сначала загрузите изображение.")
+    else:
+        with st.spinner("Распознавание текста..."):
+            try:
+                result = transcribe_image(processor, model, device, img)
+                st.success("✅ Распознавание завершено!")
+                st.markdown(f"**Распознанный текст:** {result}")
+            except Exception as e:
+                st.error(f"Ошибка при распознавании: {e}")
