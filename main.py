@@ -2,20 +2,35 @@ import io
 import streamlit as st
 import torch
 from PIL import Image
-from transformers import AutoTokenizer, AutoModelForVision2Seq
+from transformers import AutoModelForVision2Seq, AutoTokenizer, PreTrainedTokenizer, AutoProcessor
 
 
 MODEL_NAME = "HuggingFaceTB/SmolVLM-256M-Instruct"
 
 
-# Функция загрузки модели и токенизатора
+# Функция загрузки модели и процессора
 @st.cache_resource
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.float16 if device == "cuda" else torch.float32
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        # Попробуем AutoProcessor — если есть, пользуем его
+        try:
+            from transformers import AutoProcessor
+            processor = AutoProcessor.from_pretrained(MODEL_NAME)
+        except ImportError:
+            st.error("AutoProcessor не найден в данной версии transformers. Попробуем AutoTokenizer.")
+            processor = None
+
+        # Если AutoProcessor не работает, используем AutoTokenizer
+        if processor is None:
+            tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+            processor = AutoProcessor(
+                image_processor=tokenizer.image_processor if hasattr(tokenizer, "image_processor") else None,
+                tokenizer=tokenizer,
+            )
+
         model = AutoModelForVision2Seq.from_pretrained(
             MODEL_NAME,
             torch_dtype=dtype,
@@ -23,9 +38,9 @@ def load_model():
         ).to(device)
 
         model.eval()
-        return tokenizer, model, device
+        return processor, model, device
     except Exception as e:
-        st.error(f"Ошибка при загрузке модели: {e}")
+        st.error(f"Ошибка при загрузке модели/процессора: {e}")
         st.stop()
 
 
@@ -48,89 +63,4 @@ def load_image():
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
             image.thumbnail((800, 800))
             return image
-        except Exception as e:
-            st.error(f"Ошибка при загрузке изображения: {e}")
-            return None
-
-    return None
-
-
-# Функция распознавания через tokenizer (без AutoProcessor)
-def transcribe_image(tokenizer, model, device, image):
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image"},
-                {
-                    "type": "text",
-                    "text": (
-                        "Transcribe the text exactly as it appears in the image. "
-                        "Do not paraphrase. "
-                        "Do not add explanations. "
-                        "Output only the recognized text."
-                    )
-                },
-            ],
-        }
-    ]
-
-    # Используем apply_chat_template, если он есть в tokenizer
-    try:
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    except AttributeError:
-        st.error("Версия `transformers` не поддерживает `apply_chat_template` в токенизаторе.")
-        st.stop()
-
-    inputs = tokenizer(prompt, return_tensors="pt")
-    # Если у модели есть .processor, попробуем его использовать через model
-    try:
-        pixel_values = model.processor(images=[image], return_tensors="pt")["pixel_values"].to(device)
-        inputs["pixel_values"] = pixel_values
-    except AttributeError:
-        st.error("Модель не предоставляет `.processor` или его использование не поддерживается в этой версии `transformers`.")
-        st.stop()
-
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-    with torch.no_grad():
-        generated_ids = model.generate(
-            **inputs,
-            max_new_tokens=64,
-            do_sample=False,
-            pad_token_id=tokenizer.pad_token_id,
-        )
-
-    new_tokens = generated_ids[:, inputs["input_ids"].shape[1]:]
-
-    generated_text = tokenizer.batch_decode(
-        new_tokens,
-        skip_special_tokens=True
-    )[0].strip()
-
-    return generated_text
-
-
-# Основная часть приложения
-st.set_page_config(page_title="Распознать английский текст с изображения!")
-st.title("🌟 Распознать английский текст с изображения!")
-st.write("Загрузите изображение и нажмите кнопку распознавания.")
-
-tokenizer, model, device = load_model()
-if tokenizer is None or model is None:
-    st.warning("Модель не загружена, проверьте зависимость `transformers` и интернет‑соединение.")
-    st.stop()
-
-img = load_image()
-
-if st.button("Распознать изображение", type="primary"):
-    if img is None:
-        st.warning("Сначала загрузите изображение.")
-    else:
-        with st.spinner("Распознавание текста..."):
-            try:
-                result = transcribe_image(tokenizer, model, device, img)
-                st.success("✅ Распознавание завершено!")
-                st.markdown(f"**Распознанный текст:** {result}")
-            except Exception as e:
-                st.error(f"Ошибка при распознавании: {e}")
+        except Excep
