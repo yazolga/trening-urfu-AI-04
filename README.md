@@ -1,0 +1,1 @@
+# trening-urfu-AI-04
