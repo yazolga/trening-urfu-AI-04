@@ -63,4 +63,4 @@ def load_image():
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
             image.thumbnail((800, 800))
             return image
-        except Excep
+        except:
